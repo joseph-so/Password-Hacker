@@ -12,9 +12,33 @@ CheckResult.wrong = lambda feedback: CheckResult(False, feedback)
 abc = 'abcdefghijklmnopqrstuvwxyz1234567890'
 
 
+passwords = [
+    'chance', 'frankie', 'killer', 'forest', 'penguin'
+    'jackson', 'rangers', 'monica', 'qweasdzxc', 'explorer'
+    'gabriel', 'bollocks', 'simpsons', 'duncan', 'valentin',
+    'classic', 'titanic', 'logitech', 'fantasy', 'scotland',
+    'pamela', 'christin', 'birdie', 'benjamin', 'jonathan',
+    'knight', 'morgan', 'melissa', 'darkness', 'cassie'
+]
+
+
+def generate_password():
+    '''function - generator of all passwords from dictionary'''
+    for password in passwords:
+        yield password.rstrip().lower()
+
+
 def random_password():
-    '''function - generating random password of length from 2 to 3'''
-    return ''.join(random.choice(abc) for i in range(random.randint(2, 3)))
+    '''function - generating random password from dictionary'''
+    pas = random.choice(list(generate_password()))
+    uppers = []
+    for i in range(len(pas)):
+        uppers.append(random.randint(0, 1))
+
+    return ''.join(
+        pas[j].upper() if uppers[j] == 1
+        else pas[j]
+        for j in range(len(pas)))
 
 
 class Hacking(StageTest):
@@ -26,6 +50,7 @@ class Hacking(StageTest):
         self.serv = None
         self.connected = False
         self.message = []
+        self.password = None
 
     def start_server(self):
         self.serv = Thread(target=lambda: self.server())
@@ -39,7 +64,7 @@ class Hacking(StageTest):
         self.serv.join()
 
     def server(self):
-        ''' creating a server and answering clients '''
+        '''function - creating a server and answering clients'''
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(('localhost', 9090))
@@ -48,24 +73,29 @@ class Hacking(StageTest):
             self.sock.listen(1)
             conn, addr = self.sock.accept()
             self.connected = True
-            # print ('connected:', addr)
             while True:
                 data = conn.recv(1024)
+                self.message.append(data.decode('utf8'))
+                if len(self.message) > 1_000_000:
+                    conn.send('Too many attempts to connect!'.encode('utf8'))
+                    break
                 if not data:
                     break
-                self.message.append(data.decode('utf8'))
-                conn.send('Wrong password!'.encode('utf8'))
+                if data.decode('utf8') == self.password:
+                    conn.send('Connection success!'.encode('utf8'))
+                    break
+                else:
+                    conn.send('Wrong password!'.encode('utf8'))
             conn.close()
         except:
             pass
 
     def generate(self):
+        self.message = []
+        self.password = random_password()
         self.start_server()
-        test_word = random_password()
-        return [
-            TestCase(
-                args=['localhost', '9090', test_word], attach=[test_word])
-        ]
+        return [TestCase(args=['localhost', '9090'],
+                         attach=[self.password])]
 
     def check(self, reply, attach):
         self.stop_server()
@@ -73,17 +103,15 @@ class Hacking(StageTest):
         if not self.connected:
             return CheckResult.wrong("You didn't connect to the server")
 
-        if len(reply) == 0:
+        real_password = attach[0]
+        printed_password = reply.split('\n')[0]
+        if reply.split('\n')[0] != real_password:
             return CheckResult.wrong(
-                'You did not print anything')
-        if reply.split('\n')[0] != 'Wrong password!':
-            return CheckResult.wrong(
-                'The line you printed is not the one sent by server')
-        if len(self.message) == 0:
-            return CheckResult.wrong('You sent nothing to the server')
-        if self.message != attach:
-            return CheckResult.wrong(
-                'You sent the wrong information to the server')
+                'The password you printed is not correct\n'
+                'You printed: \"' + printed_password + '\"\n'
+                'Correct password: \"' + real_password + '\"'
+            )
+
         return CheckResult.correct()
 
 
